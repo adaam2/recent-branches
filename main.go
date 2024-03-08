@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/list"
@@ -18,12 +19,16 @@ var (
 	titleStyle        = lipgloss.NewStyle().MarginLeft(2).Foreground(lipgloss.Color("205"))
 	itemStyle         = lipgloss.NewStyle().PaddingLeft(4)
 	selectedItemStyle = lipgloss.NewStyle().PaddingLeft(2).Foreground(lipgloss.Color("205"))
+	checkoutStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
 	paginationStyle   = list.DefaultStyles().PaginationStyle.PaddingLeft(4)
 	helpStyle         = list.DefaultStyles().HelpStyle.PaddingLeft(4).PaddingBottom(1)
-	quitTextStyle     = lipgloss.NewStyle().Margin(1, 0, 2, 4)
 )
 
-type item string
+type item struct {
+	name   string
+	ago    string
+	author string
+}
 
 func (i item) FilterValue() string { return "" }
 
@@ -38,7 +43,7 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, listItem list
 		return
 	}
 
-	str := fmt.Sprintf("%d. %s", index+1, i)
+	str := fmt.Sprintf("%d. %s (%s) %s", index+1, i.name, i.ago, i.author)
 
 	fn := itemStyle.Render
 	if index == m.Index() {
@@ -52,7 +57,7 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, listItem list
 
 type model struct {
 	list     list.Model
-	choice   string
+	choice   *item
 	quitting bool
 }
 
@@ -73,9 +78,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 
 		case "enter":
-			i, ok := m.list.SelectedItem().(item)
+			item, ok := m.list.SelectedItem().(item)
+
 			if ok {
-				m.choice = string(i)
+				m.choice = &item
+
+				cmd := exec.Command("git", "checkout", m.choice.name)
+				cmd.Stdout = os.Stdout
+				cmd.Run()
 			}
 			return m, tea.Quit
 		}
@@ -87,16 +97,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) View() string {
-
-	if m.quitting {
-		return quitTextStyle.Render("Not hungry? That’s cool.")
+	if m.choice != nil {
+		return checkoutStyle.Render(fmt.Sprintf("Checking out %s\n", m.choice.name))
 	}
 	return "\n" + m.list.View()
 }
 
 func getItems() ([]list.Item, error) {
-	// git for-each-ref --sort=-committerdate refs/heads refs/remotes --format='%(authordate:short) %(color:red)%(objectname:short) %(color:yellow)%(refname:short)%(color:reset) (%(color:green)%(committerdate:relative)%(color:reset)) %(authorname)' --color=always | head -n 50
-	cmd := exec.Command("git", "for-each-ref", "--sort=-committerdate", "refs/heads", "refs/remotes", "--format=%(authordate:short) %(color:red)%(objectname:short) %(color:yellow)%(refname:short)%(color:reset) (%(color:green)%(committerdate:relative)%(color:reset)) %(authorname)", "--color=always", "|", "head", "-n", "50")
+	gitCmd := "git for-each-ref --sort=-committerdate refs/heads refs/remotes --format='%(color:yellow)%(refname:short)%(color:reset) (%(color:green)%(committerdate:relative)%(color:reset)) %(authorname)' | head -n 50"
+	cmd := exec.Command("bash", "-c", gitCmd)
 
 	b, err := cmd.CombinedOutput()
 
@@ -104,19 +113,52 @@ func getItems() ([]list.Item, error) {
 		return nil, err
 	}
 
-	tea.Println(string(b))
+	output := string(b)
 
-	return []list.Item{}, nil
+	lines := strings.Split(output, "\n")
+
+	items := []list.Item{}
+
+	for _, line := range lines {
+		// Remove the color codes
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+
+		name, ago, author, err := parseLine(line)
+
+		if err != nil {
+			continue
+		}
+		items = append(items, item{
+			name:   name,
+			ago:    ago,
+			author: author,
+		})
+	}
+
+	return items, nil
+}
+
+func parseLine(line string) (string, string, string, error) {
+	re := regexp.MustCompile(`^(.*?) \((\d+ minutes ago)\) (\w+)$`)
+
+	matches := re.FindStringSubmatch(line)
+
+	if len(matches) != 4 {
+		return "", "", "", fmt.Errorf("could not parse line: %s", line)
+	}
+
+	return matches[1], matches[2], matches[3], nil
 }
 
 func main() {
-
 	const defaultWidth = 20
 
 	items, err := getItems()
 
 	if err != nil {
-		tea.Quit()
+		os.Exit(1)
 	}
 	l := list.New(items, itemDelegate{}, defaultWidth, listHeight)
 	l.Title = "✨ Recent branches ✨"
