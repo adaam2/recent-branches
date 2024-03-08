@@ -58,10 +58,26 @@ type model struct {
 	list     list.Model
 	choice   *item
 	quitting bool
+	err      error
 }
 
 func (m model) Init() tea.Cmd {
 	return nil
+}
+
+type checkoutMsg struct {
+	err error
+}
+
+func (m model) Checkout() tea.Cmd {
+	cmd := exec.Command("git", "checkout", m.choice.name)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	return tea.ExecProcess(cmd, func(err error) tea.Msg {
+		return checkoutMsg{err: err}
+	})
+
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -69,7 +85,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.list.SetWidth(msg.Width)
 		return m, nil
-
+	case checkoutMsg:
+		if msg.err != nil {
+			m.err = msg.err
+		}
+		return m, tea.Quit
 	case tea.KeyMsg:
 		switch keypress := msg.String(); keypress {
 		case "q", "ctrl+c":
@@ -82,10 +102,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if ok {
 				m.choice = &item
 
-				cmd := exec.Command("git", "checkout", m.choice.name)
-				cmd.Stdout = os.Stdout
-				cmd.Run()
+				return m, m.Checkout()
 			}
+
 			return m, tea.Quit
 		}
 	}
@@ -96,6 +115,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) View() string {
+	if m.err != nil {
+		return fmt.Sprintf("\n error: %s", m.err)
+
+	}
 	return "\n" + m.list.View()
 }
 
@@ -155,11 +178,8 @@ func parseLine(line string) (string, string, string, error) {
 func main() {
 	const defaultWidth = 20
 
-	items, err := getItems()
+	items, _ := getItems()
 
-	if err != nil {
-		os.Exit(1)
-	}
 	l := list.New(items, itemDelegate{}, defaultWidth, listHeight)
 	l.Title = "✨ Recent branches ✨"
 	l.SetShowStatusBar(false)
