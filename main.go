@@ -19,7 +19,6 @@ var (
 	titleStyle        = lipgloss.NewStyle().MarginLeft(2).Foreground(lipgloss.Color("205"))
 	itemStyle         = lipgloss.NewStyle().PaddingLeft(4)
 	selectedItemStyle = lipgloss.NewStyle().PaddingLeft(2).Foreground(lipgloss.Color("205"))
-	checkoutStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
 	paginationStyle   = list.DefaultStyles().PaginationStyle.PaddingLeft(4)
 	helpStyle         = list.DefaultStyles().HelpStyle.PaddingLeft(4).PaddingBottom(1)
 )
@@ -97,14 +96,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) View() string {
-	if m.choice != nil {
-		return checkoutStyle.Render(fmt.Sprintf("Checking out %s\n", m.choice.name))
-	}
 	return "\n" + m.list.View()
 }
 
 func getItems() ([]list.Item, error) {
-	gitCmd := "git for-each-ref --sort=-committerdate refs/heads refs/remotes --format='%(color:yellow)%(refname:short)%(color:reset) (%(color:green)%(committerdate:relative)%(color:reset)) %(authorname)' | head -n 50"
+	gitCmd := "git for-each-ref --no-merged master --sort=-committerdate refs/heads refs/remotes --format='%(color:yellow)%(refname:short)%(color:reset) (%(color:green)%(committerdate:relative)%(color:reset)) %(authorname)' | head -n 150"
 	cmd := exec.Command("bash", "-c", gitCmd)
 
 	b, err := cmd.CombinedOutput()
@@ -125,6 +121,10 @@ func getItems() ([]list.Item, error) {
 			continue
 		}
 
+		if strings.HasPrefix(line, "origin/") {
+			continue
+		}
+
 		name, ago, author, err := parseLine(line)
 
 		if err != nil {
@@ -141,7 +141,7 @@ func getItems() ([]list.Item, error) {
 }
 
 func parseLine(line string) (string, string, string, error) {
-	re := regexp.MustCompile(`^(.*?) \((\d+ minutes ago)\) (\w+)$`)
+	re := regexp.MustCompile(`(.*)\s[(](.*)[)]\s(\w+)`)
 
 	matches := re.FindStringSubmatch(line)
 
@@ -170,7 +170,7 @@ func main() {
 
 	m := model{list: l}
 
-	if _, err := tea.NewProgram(m).Run(); err != nil {
+	if _, err := tea.NewProgram(m, tea.WithAltScreen()).Run(); err != nil {
 		fmt.Println("Error running program:", err)
 		os.Exit(1)
 	}
