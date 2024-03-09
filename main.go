@@ -16,11 +16,11 @@ import (
 const listHeight = 14
 
 var (
-	titleStyle        = lipgloss.NewStyle().MarginLeft(2).Foreground(lipgloss.Color("205"))
-	itemStyle         = lipgloss.NewStyle().PaddingLeft(4)
-	selectedItemStyle = lipgloss.NewStyle().PaddingLeft(2).Foreground(lipgloss.Color("205"))
-	paginationStyle   = list.DefaultStyles().PaginationStyle.PaddingLeft(4)
-	helpStyle         = list.DefaultStyles().HelpStyle.PaddingLeft(4).PaddingBottom(1)
+	itemStyle         = lipgloss.NewStyle().Foreground(lipgloss.Color("36"))
+	selectedItemStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("50")).Bold(true)
+	fadedTextStyle 		= lipgloss.NewStyle().Faint(true)
+	paginationStyle   = list.DefaultStyles().PaginationStyle.PaddingBottom(1)
+	helpStyle         = list.DefaultStyles().HelpStyle.PaddingBottom(1)
 )
 
 type item struct {
@@ -42,16 +42,20 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, listItem list
 		return
 	}
 
-	str := fmt.Sprintf(" %s (%s) %s", i.name, i.ago, i.author)
+	isSelected := index == m.Index()
+	style := itemStyle
 
-	fn := itemStyle.Render
-	if index == m.Index() {
-		fn = func(s ...string) string {
-			return selectedItemStyle.Render(" >" + strings.Join(s, " "))
-		}
+	icon := "☆ "
+
+	if isSelected {
+		style = selectedItemStyle
+		icon = "★ "
 	}
 
-	fmt.Fprint(w, fn(str))
+	content := icon + fadedTextStyle.Render(fmt.Sprintf("(%s)", i.ago)) + style.Render(fmt.Sprintf(" %s", i.name))
+
+
+	fmt.Fprint(w, content)
 }
 
 type model struct {
@@ -181,10 +185,9 @@ func main() {
 	items, _ := getItems()
 
 	l := list.New(items, itemDelegate{}, defaultWidth, listHeight)
-	l.Title = "✨ Recent branches ✨"
+	l.SetShowTitle(false)
 	l.SetShowStatusBar(false)
 	l.SetFilteringEnabled(false)
-	l.Styles.Title = titleStyle
 	l.Styles.PaginationStyle = paginationStyle
 	l.Styles.HelpStyle = helpStyle
 
